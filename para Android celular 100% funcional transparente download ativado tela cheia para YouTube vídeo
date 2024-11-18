@@ -1,0 +1,157 @@
+package www.unifyhub.unifyhub
+
+import android.Manifest
+import android.annotation.SuppressLint
+import android.app.DownloadManager
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.os.Environment
+import android.view.KeyEvent
+import android.webkit.*
+import android.widget.Toast
+import androidx.annotation.RequiresApi
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var myWebView: WebView
+
+    @RequiresApi(Build.VERSION_CODES.R)
+    @SuppressLint("SetJavaScriptEnabled")
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        // Torna a barra de status e navegação transparentes
+        window.apply {
+            setDecorFitsSystemWindows(false)
+            statusBarColor = android.graphics.Color.TRANSPARENT
+            navigationBarColor = android.graphics.Color.TRANSPARENT
+        }
+
+        // Configuração do WebView
+        myWebView = findViewById(R.id.webView)
+        myWebView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            loadWithOverviewMode = true
+            useWideViewPort = true
+            allowFileAccess = true
+            allowContentAccess = true
+            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+        }
+
+        // Força o download de qualquer link de arquivo
+        myWebView.setDownloadListener { url, _, contentDisposition, mimeType, _ ->
+            if (mimeType == null || mimeType == "application/octet-stream") {
+                downloadAsImage(url)
+            } else {
+                iniciarDownload(url, contentDisposition, mimeType)
+            }
+        }
+
+        // Configuração do WebViewClient
+        myWebView.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val url = request?.url.toString()
+                if (url.contains("ads")) {
+                    Toast.makeText(applicationContext, "Anúncio bloqueado", Toast.LENGTH_SHORT).show()
+                    return true
+                }
+                if (URLUtil.isNetworkUrl(url) && (url.endsWith(".png") || url.endsWith(".jpg") || url.endsWith(".jpeg"))) {
+                    downloadAsImage(url)
+                    return true
+                }
+                view?.loadUrl(url)
+                return true
+            }
+        }
+
+        // Configuração do WebChromeClient
+        myWebView.webChromeClient = object : WebChromeClient() {
+            override fun onShowCustomView(view: android.view.View?, callback: CustomViewCallback?) {
+                super.onShowCustomView(view, callback)
+                window.insetsController?.hide(android.view.WindowInsets.Type.statusBars())
+                supportActionBar?.hide()
+                view?.let {
+                    it.layoutParams = android.widget.FrameLayout.LayoutParams(
+                        android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+                    )
+                    setContentView(it)
+                }
+            }
+
+            override fun onHideCustomView() {
+                super.onHideCustomView()
+                window.insetsController?.show(android.view.WindowInsets.Type.statusBars())
+                supportActionBar?.show()
+                setContentView(R.layout.activity_main)
+            }
+        }
+
+        // Carrega a URL inicial ou restaura o estado salvo
+        if (savedInstanceState == null) {
+            myWebView.loadUrl("https://guardpay.github.io/UnifyHub-Mobile/")
+        } else {
+            myWebView.restoreState(savedInstanceState)
+        }
+
+        // Solicita permissões de armazenamento conforme a versão do Android
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), 1)
+        } else if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+            Toast.makeText(this, "Modo Scoped Storage (Android 10)", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "Android 14 Iniciando", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Salva o estado do WebView ao girar a tela
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        myWebView.saveState(outState)
+    }
+
+    // Força o download de imagens como PNG ou JPEG
+    private fun downloadAsImage(url: String) {
+        val request = DownloadManager.Request(Uri.parse(url)).apply {
+            setAllowedOverRoaming(false)
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            setTitle("Imagem")
+            setDescription("Baixando imagem como PNG/JPEG")
+            setMimeType("image/png")
+            setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
+            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "imagem_baixada.png")
+        }
+        val downloadManager = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+        downloadManager.enqueue(request)
+        Toast.makeText(applicationContext, "Iniciando", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun iniciarDownload(url: String, contentDisposition: String?, mimeType: String?) {
+        val request = DownloadManager.Request(Uri.parse(url)).apply {
+            setAllowedOverRoaming(false)
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            setTitle(URLUtil.guessFileName(url, contentDisposition, mimeType))
+            setDescription("Baixando arquivo...")
+            setMimeType(mimeType ?: "image/png")
+            setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
+            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, URLUtil.guessFileName(url, contentDisposition, mimeType))
+        }
+        val downloadManager = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+        downloadManager.enqueue(request)
+        Toast.makeText(applicationContext, "Download iniciado...", Toast.LENGTH_SHORT).show()
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK && myWebView.canGoBack()) {
+            myWebView.goBack()
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+}
